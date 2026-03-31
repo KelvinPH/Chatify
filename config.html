@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en" data-theme="obsidian">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Chatify — Configurator</title>
+  <style> body { background: #0a0a0a; } </style>
+  <link rel="stylesheet" href="./src/styles/base.css" />
+  <link rel="stylesheet" href="./src/styles/config.css" />
+</head>
+<body>
+  <div id="cfg-shell">
+
+    <header id="cfg-header">
+      <div class="cfg-logo">Chatify</div>
+      <div class="cfg-tagline">Overlay Configurator</div>
+      <div class="cfg-header-actions">
+        <button id="btn-copy" class="cfg-btn cfg-btn-primary">Copy URL</button>
+        <button id="btn-open" class="cfg-btn">Open preview</button>
+        <button id="btn-reset" class="cfg-btn">Reset</button>
+      </div>
+    </header>
+
+    <div id="cfg-body">
+      <aside id="cfg-sidebar"></aside>
+      <main id="cfg-preview">
+        <div id="cfg-preview-bg"></div>
+        <div id="cfg-preview-frame-wrap">
+          <iframe id="cfg-iframe" frameborder="0"></iframe>
+        </div>
+        <div id="cfg-preview-bar">
+          <span id="cfg-url-display"></span>
+        </div>
+      </main>
+    </div>
+
+  </div>
+  <script type="module">
+    import { initConfig } from './src/config/controls.js';
+    initConfig();
+  </script>
+</body>
+</html>
