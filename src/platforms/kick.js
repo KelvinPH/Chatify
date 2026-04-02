@@ -1,7 +1,9 @@
-const PUSHER_KEY = "eb1d5f283081a78b932c";
+const PUSHER_KEY = "32cbd69e4b950bf97679";
 const PUSHER_HOST = "ws-us2.pusher.com";
 const PUSHER_PORT = 443;
 const RECONNECT_DELAYS = [3000, 5000, 10000, 20000, 30000];
+
+const CORS_PROXY_BASE = "https://nowify-workers.kelvinph.workers.dev/proxy?url=";
 
 let socket = null;
 let reconnectTimer = null;
@@ -10,14 +12,13 @@ let lastConfig = null;
 let onMessageCallback = null;
 let onEventCallback = null;
 let pingInterval = null;
-let channelId = null;
 
 /** Connect to Kick chat through Pusher WebSocket. */
 export async function connect({ channel, onMessage, onEvent }) {
   try {
     disconnect();
 
-    const safeChannel = String(channel || "").trim();
+    const safeChannel = String(channel || "").trim().replace(/^#/, "");
     if (!safeChannel) {
       console.warn("Kick connect skipped: missing channel.");
       return;
@@ -27,40 +28,15 @@ export async function connect({ channel, onMessage, onEvent }) {
     onEventCallback = typeof onEvent === "function" ? onEvent : null;
     lastConfig = { channel: safeChannel, onMessage, onEvent };
 
-    const KICK_API = `https://kick.com/api/v1/channels/${encodeURIComponent(safeChannel)}`;
-    const CORS_PROXY = `https://nowify-workers.kelvinph.workers.dev/proxy?url=${
-      encodeURIComponent(KICK_API)
-    }`;
-
-    let infoResponse = null;
-    try {
-      infoResponse = await fetch(KICK_API);
-      if (!infoResponse.ok && infoResponse.type === "opaque") {
-        throw new Error("CORS blocked");
-      }
-    } catch (_corsError) {
-      console.warn("Kick direct fetch blocked, trying proxy...");
-      try {
-        infoResponse = await fetch(CORS_PROXY);
-      } catch (proxyError) {
-        console.warn("Kick proxy fetch also failed.", proxyError);
-        return;
-      }
-    }
-
-    if (!infoResponse || !infoResponse.ok) {
-      if (infoResponse?.status === 404) {
-        console.warn("Kick channel not found.");
-        return;
-      }
-      console.warn("Kick channel lookup failed.", infoResponse?.status);
+    const channelPayload = await fetchKickChannel(safeChannel);
+    if (!channelPayload) {
+      console.warn("Kick channel lookup failed or blocked.");
       return;
     }
 
-    const channelData = await infoResponse.json();
-    channelId = channelData?.id || null;
-    if (!channelId) {
-      console.warn("Kick channel ID missing from response.");
+    const chatroomId = extractChatroomId(channelPayload);
+    if (chatroomId == null) {
+      console.warn("Kick chatroom id missing from API response.");
       return;
     }
 
@@ -74,7 +50,10 @@ export async function connect({ channel, onMessage, onEvent }) {
       socket.send(
         JSON.stringify({
           event: "pusher:subscribe",
-          data: { auth: "", channel: `chatroom.${channelId}` }
+          data: {
+            auth: "",
+            channel: `chatrooms.${chatroomId}.v2`
+          }
         })
       );
 
@@ -149,13 +128,102 @@ export function disconnect() {
   socket = null;
 }
 
+/**
+ * @param {string} slug
+ * @returns {Promise<object|null>}
+ */
+async function fetchKickChannel(slug) {
+  const enc = encodeURIComponent(slug);
+  const urls = [
+    `https://kick.com/api/v2/channels/${enc}`,
+    `https://kick.com/api/v1/channels/${enc}`
+  ];
+
+  for (const url of urls) {
+    const data = await tryFetchJson(url, false);
+    if (data && !data.error) return data;
+  }
+
+  for (const url of urls) {
+    const data = await tryFetchJson(url, true);
+    if (data && !data.error) return data;
+  }
+
+  return null;
+}
+
+/**
+ * @param {string} url
+ * @param {boolean} useProxy
+ */
+async function tryFetchJson(url, useProxy) {
+  const target = useProxy ? `${CORS_PROXY_BASE}${encodeURIComponent(url)}` : url;
+  try {
+    const res = await fetch(target, {
+      credentials: "omit",
+      headers: { Accept: "application/json" }
+    });
+    if (!res.ok) {
+      if (res.status === 404) return null;
+      return null;
+    }
+    try {
+      return await res.json();
+    } catch (_parse) {
+      return null;
+    }
+  } catch (_e) {
+    return null;
+  }
+}
+
+function extractChatroomId(data) {
+  const cr = data?.chatroom;
+  if (cr != null && typeof cr === "object" && cr.id != null) {
+    return Number(cr.id);
+  }
+  if (data?.chatroom_id != null) return Number(data.chatroom_id);
+  return null;
+}
+
+/**
+ * Kick sends badge `text` as a label (e.g. community name), not an image URL.
+ * Only pass `url` through when it is a real http(s) URL so we don't render broken <img> icons.
+ */
+function pickKickBadgeImageUrl(b) {
+  const candidates = [
+    b?.image_url,
+    b?.imageUrl,
+    b?.icon_url,
+    b?.iconUrl,
+    b?.url,
+    b?.src
+  ];
+  for (const c of candidates) {
+    if (typeof c === "string" && /^https?:\/\//i.test(c.trim())) {
+      return c.trim();
+    }
+  }
+  return "";
+}
+
+function normalizeKickBadge(b) {
+  const id = String(b?.type || "").toLowerCase();
+  const url = pickKickBadgeImageUrl(b);
+  const rawText = typeof b?.text === "string" ? b.text.trim() : "";
+  const displayText =
+    !url && rawText && !/^https?:\/\//i.test(rawText) ? rawText : "";
+  return {
+    id,
+    version: "1",
+    url,
+    displayText
+  };
+}
+
 function parseKickMessage(data) {
   const sender = data?.sender || {};
-  const badges = (sender?.identity?.badges || []).map((b) => ({
-    id: b?.type || "",
-    version: "1",
-    url: b?.text || ""
-  }));
+  const badges = (sender?.identity?.badges || []).map((b) => normalizeKickBadge(b));
 
   const normalized = {
     id: String(data?.id || `${Date.now()}-${Math.random().toString(36).slice(2)}`),

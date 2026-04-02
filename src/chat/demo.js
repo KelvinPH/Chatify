@@ -37,15 +37,27 @@ export function buildDemoMessages() {
     { username: "regular_viewer", message: "classic banger", color: "#F0A500" }
   ];
 
+  const platformCycle = [
+    "twitch",
+    "twitch",
+    "youtube",
+    "kick",
+    "tiktok",
+    "twitch",
+    "youtube"
+  ];
+
   return rows.map((row, idx) => {
     const badges = [];
     if (row.isMod) badges.push({ id: "moderator", version: "1", url: "" });
     if (row.isVip) badges.push({ id: "vip", version: "1", url: "" });
     if (row.isSubscriber) badges.push({ id: "subscriber", version: "1", url: "" });
 
+    const platform = platformCycle[idx % platformCycle.length];
+
     return {
       id: `demo-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 8)}`,
-      platform: "twitch",
+      platform,
       username: row.username,
       usernameColor: row.color,
       message: row.message,
