@@ -206,7 +206,7 @@ export function attachCustomPanelListeners(panel, ctx) {
     input.addEventListener("input", () => {
       const key = input.dataset.rangeKey;
       const val = Number(input.value);
-      const label = document.getElementById(`val-${key}`);
+      const label = key ? panel.querySelector(`#val-${key}`) : null;
       if (label && key) label.textContent = rangeUnit(key, val);
       debounce(() => update({ [key]: val }), 300);
     });

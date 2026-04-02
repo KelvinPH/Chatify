@@ -108,6 +108,7 @@ const PRESETS = [
 
 let state = { ...DEFAULT_STATE };
 let debounceTimer = null;
+let previewRev = 0;
 
 function normalizeLayoutValue(layout) {
   if (layout === "floating") return "default";
@@ -219,18 +220,25 @@ function update(newState) {
   const next = { ...newState };
   if (next.layout != null) next.layout = normalizeLayoutValue(next.layout);
   Object.assign(state, next);
-  savePlatformState();
+  try {
+    savePlatformState();
+  } catch (err) {
+    console.warn("Chatify could not save settings to localStorage.", err);
+  }
   updatePreview();
   if (customPanelOpen) renderCustomPanel();
   else renderSidebar();
 }
 
 function updatePreview() {
-  const url = buildOverlayUrl(state);
+  const base = buildOverlayUrl(state);
+  const sep = base.includes("?") ? "&" : "?";
+  previewRev += 1;
+  const previewUrl = `${base}${sep}_pv=${previewRev}`;
   const frame = document.getElementById("cfg-iframe");
   const display = document.getElementById("cfg-url-display");
-  if (frame) frame.src = url;
-  if (display) display.textContent = url;
+  if (frame) frame.src = previewUrl;
+  if (display) display.textContent = base;
 }
 
 function formatRangeLabel(key, val) {
@@ -257,7 +265,10 @@ function renderSidebar() {
   sidebar.style.flexDirection = "column";
 
   const panel = document.getElementById("cfg-custom-panel");
-  if (panel) panel.classList.remove("cfg-panel-open");
+  if (panel) {
+    panel.classList.remove("cfg-panel-open");
+    panel.innerHTML = "";
+  }
 
   sidebar.innerHTML = `
     ${renderIntro()}
@@ -408,7 +419,10 @@ function renderSidebar() {
 
 function renderCustomPanel() {
   const sidebar = document.getElementById("cfg-sidebar");
-  if (sidebar) sidebar.style.display = "none";
+  if (sidebar) {
+    sidebar.style.display = "none";
+    sidebar.innerHTML = "";
+  }
 
   const panel = document.getElementById("cfg-custom-panel");
   if (!panel) return;
@@ -526,7 +540,7 @@ function attachSidebarListeners(sidebar) {
     input.addEventListener("input", () => {
       const key = input.dataset.rangeKey;
       const val = Number(input.value);
-      const label = document.getElementById(`val-${key}`);
+      const label = key ? sidebar.querySelector(`#val-${key}`) : null;
       if (label && key) label.textContent = formatRangeLabel(key, val);
       clearTimeout(debounceTimer);
       debounceTimer = setTimeout(() => update({ [key]: val }), 300);
